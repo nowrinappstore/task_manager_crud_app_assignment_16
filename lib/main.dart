@@ -19,20 +19,19 @@ class AppStartup {
   static String? firebaseError;
 }
 
-// FCM Background Handler
+// Background FCM Handler
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   debugPrint('Background FCM message: ${message.messageId}');
+  debugPrint('Message data: ${message.data}');
 }
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Firebase Initialization
+  // Initialize Firebase
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
@@ -40,47 +39,35 @@ Future<void> main() async {
 
     AppStartup.firebaseReady = true;
 
-    // Register the background handler once
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   } catch (e) {
     AppStartup.firebaseError = e.toString();
     debugPrint('Firebase initialization failed: $e');
   }
 
-  // Local Notification Initialization
-  try {
-    await NotificationService.init();
-  } catch (e) {
-    debugPrint('Notification initialization failed: $e');
-  }
-
-  // FCM Initialization
+  // Initialize Services
   if (AppStartup.firebaseReady) {
     try {
+      // Local notification initialization
+      await NotificationService.init();
+
+      // FCM initialization and token setup
       await PushService.init();
-    } catch (e) {
-      debugPrint('Push service initialization failed: $e');
-    }
 
-    try {
-      await NotificationService.initializeFCM();
-    } catch (e) {
-      debugPrint('FCM initialization failed: $e');
-    }
-  }
+      // Show local notification for foreground FCM messages
+      NotificationService.listenForegroundMessages();
 
-  // Google Sign-In Initialization
-  if (AppStartup.firebaseReady) {
-    try {
+      // Initialize Google Sign-In
       await GoogleSignIn.instance.initialize();
-    } catch (e) {
-      debugPrint('Google Sign-In initialization failed: $e');
+    } catch (e, stackTrace) {
+      debugPrint('Service initialization failed: $e');
+      debugPrint('$stackTrace');
     }
   }
 
   runApp(const MyApp());
 
-  // App was opened from a terminated state by tapping a notification
+  // Handle notification that opened a terminated app
   if (AppStartup.firebaseReady) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       PushService.handleLaunchMessage();
@@ -97,50 +84,42 @@ class MyApp extends StatelessWidget {
       title: 'Task Manager',
       debugShowCheckedModeBanner: false,
       navigatorKey: AppNavigator.key,
-      theme: ThemeData(
-        colorSchemeSeed: Colors.indigo,
-        useMaterial3: true,
-      ),
-      // Check Firebase first so AuthService() is never touched if init failed
+      theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
       home: !AppStartup.firebaseReady
           ? Scaffold(
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Text(
-              'Firebase initialization failed:\n'
-                  '${AppStartup.firebaseError ?? "Unknown error"}',
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ),
-      )
+              body: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Text(
+                    'Firebase initialization failed:\n'
+                    '${AppStartup.firebaseError ?? "Unknown error"}',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            )
           : StreamBuilder<User?>(
-        stream: AuthService().authState,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Scaffold(
-              body: Center(
-                child: CircularProgressIndicator(),
-              ),
-            );
-          }
+              stream: AuthService().authState,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  );
+                }
 
-          if (snapshot.hasError) {
-            return const Scaffold(
-              body: Center(
-                child: Text('Authentication error occurred.'),
-              ),
-            );
-          }
+                if (snapshot.hasError) {
+                  return const Scaffold(
+                    body: Center(child: Text('Authentication error occurred.')),
+                  );
+                }
 
-          if (snapshot.hasData) {
-            return const HomeScreen();
-          }
+                if (snapshot.hasData) {
+                  return const HomeScreen();
+                }
 
-          return const LoginScreen();
-        },
-      ),
+                return const LoginScreen();
+              },
+            ),
     );
   }
 }
@@ -175,7 +154,6 @@ class NotificationLabHomeScreen extends StatelessWidget {
   }
 }
 
-// Section Title
 class _SectionTitle extends StatelessWidget {
   const _SectionTitle({required this.title});
 
@@ -187,21 +165,14 @@ class _SectionTitle extends StatelessWidget {
       padding: const EdgeInsets.only(top: 24, bottom: 8),
       child: Text(
         title,
-        style: const TextStyle(
-          fontSize: 24,
-          fontWeight: FontWeight.bold,
-        ),
+        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
       ),
     );
   }
 }
 
-// Navigation Button
 class _DemoButton extends StatelessWidget {
-  const _DemoButton({
-    required this.label,
-    required this.screen,
-  });
+  const _DemoButton({required this.label, required this.screen});
 
   final String label;
   final Widget screen;

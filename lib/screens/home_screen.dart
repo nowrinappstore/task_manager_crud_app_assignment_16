@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import '../models/task.dart';
+
+import '../models/task_model.dart';
 import '../services/auth_services.dart';
 import '../services/notification_lab_screen.dart';
 import '../services/notification_service.dart';
@@ -13,17 +14,19 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _service = TaskService();
-  final _auth = AuthService();
-  final _searchController = TextEditingController();
+  final TaskService _service = TaskService();
+  final AuthService _auth = AuthService();
+  final TextEditingController _searchController = TextEditingController();
 
-  List<Task> _tasks = [];
+  List<TaskModel> _tasks = [];
+
   bool _loading = true;
+  bool _saving = false;
 
   String _filter = 'all';
   String _query = '';
 
-  static const _primary = Colors.indigo;
+  static const Color _primary = Colors.indigo;
 
   @override
   void initState() {
@@ -37,48 +40,47 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  // =========================
-  // HELPERS
-  // =========================
+  // --------------------------------------------------
+  // NOTIFICATION ID
+  // --------------------------------------------------
 
-  int _nid(Task task) => NotificationService.notificationIdFor(task.id);
-
-  // Dialog বন্ধ হওয়ার animation শেষ হলে controller dispose
-  void _disposeLater(List<TextEditingController> controllers) {
-    Future.delayed(const Duration(milliseconds: 400), () {
-      for (final c in controllers) {
-        c.dispose();
-      }
-    });
+  int _nid(TaskModel task) {
+    return NotificationService.notificationIdFor(task.id);
   }
 
-  // =========================
+  // --------------------------------------------------
   // LOAD TASKS
-  // =========================
+  // --------------------------------------------------
 
   Future<void> _load() async {
-    if (mounted) {
-      setState(() {
-        _loading = true;
-      });
-    }
+    if (!mounted) return;
+
+    setState(() {
+      _loading = true;
+    });
 
     try {
-      _tasks = await _service.getTasks();
-    } catch (e) {
-      _toast(e.toString());
-    }
+      final tasks = await _service.getTasks();
 
-    if (mounted) {
+      if (!mounted) return;
+
       setState(() {
-        _loading = false;
+        _tasks = tasks;
       });
+    } catch (e) {
+      _toast('Task load failed: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
     }
   }
 
-  // =========================
-  // TOAST
-  // =========================
+  // --------------------------------------------------
+  // SNACKBAR
+  // --------------------------------------------------
 
   void _toast(String message) {
     if (!mounted) return;
@@ -87,479 +89,72 @@ class _HomeScreenState extends State<HomeScreen> {
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
       );
   }
 
-  // =========================
+  // --------------------------------------------------
   // FILTER
-  // =========================
+  // --------------------------------------------------
 
-  List<Task> get _visible {
+  List<TaskModel> get _visible {
     return _tasks.where((task) {
-      final matchQuery =
-      task.title.toLowerCase().contains(_query.toLowerCase());
+      final matchesQuery = task.title.toLowerCase().contains(
+        _query.toLowerCase(),
+      );
 
-      final matchFilter = _filter == 'all' ||
-          (_filter == 'active' && !task.completed) ||
-          (_filter == 'done' && task.completed);
+      final matchesFilter =
+          _filter == 'all' ||
+          (_filter == 'active' && !task.isCompleted) ||
+          (_filter == 'done' && task.isCompleted);
 
-      return matchQuery && matchFilter;
+      return matchesQuery && matchesFilter;
     }).toList();
   }
 
-  int get _doneCount => _tasks.where((t) => t.completed).length;
-  int get _activeCount => _tasks.where((t) => !t.completed).length;
+  int get _doneCount => _tasks.where((task) => task.isCompleted).length;
 
-  // =========================
+  int get _activeCount => _tasks.where((task) => !task.isCompleted).length;
+
+  // --------------------------------------------------
   // PRIORITY
-  // =========================
+  // --------------------------------------------------
 
-  Color _priorityColor(String priority) {
-    if (priority == 'high') return Colors.red;
-    if (priority == 'low') return Colors.green;
-    return Colors.orange;
-  }
-
-  String _priorityLabel(String priority) {
-    if (priority == 'high') return 'High';
-    if (priority == 'low') return 'Low';
-    return 'Medium';
-  }
-
-  // =========================
-  // ADD / EDIT TASK
-  // =========================
-
-  Future<void> _openForm([Task? task]) async {
-    final titleController = TextEditingController(text: task?.title ?? '');
-    final descriptionController =
-    TextEditingController(text: task?.description ?? '');
-    final controllers = [titleController, descriptionController];
-
-    String priority = task?.priority ?? 'medium';
-
-    // Server থেকে UTC এলে local সময়ে নেওয়া হচ্ছে
-    DateTime? due = task?.dueDate != null
-        ? DateTime.tryParse(task!.dueDate!)?.toLocal()
-        : null;
-
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setD) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(24),
-              ),
-              title: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.indigo.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(
-                      task == null ? Icons.add_task : Icons.edit_note,
-                      color: _primary,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    task == null ? 'নতুন টাস্ক' : 'টাস্ক এডিট',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ],
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 4),
-
-                    // TITLE
-                    TextField(
-                      controller: titleController,
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: InputDecoration(
-                        labelText: 'Title',
-                        prefixIcon: const Icon(Icons.task_alt),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    // DESCRIPTION
-                    TextField(
-                      controller: descriptionController,
-                      maxLines: 3,
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: InputDecoration(
-                        labelText: 'Description',
-                        alignLabelWithHint: true,
-                        prefixIcon: const Padding(
-                          padding: EdgeInsets.only(bottom: 44),
-                          child: Icon(Icons.description),
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(height: 18),
-
-                    // PRIORITY
-                    Text(
-                      'Priority',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    SizedBox(
-                      width: double.infinity,
-                      child: SegmentedButton<String>(
-                        showSelectedIcon: false,
-                        segments: const [
-                          ButtonSegment(value: 'low', label: Text('Low')),
-                          ButtonSegment(
-                              value: 'medium', label: Text('Medium')),
-                          ButtonSegment(value: 'high', label: Text('High')),
-                        ],
-                        selected: {priority},
-                        onSelectionChanged: (selection) {
-                          setD(() {
-                            priority = selection.first;
-                          });
-                        },
-                      ),
-                    ),
-
-                    const SizedBox(height: 18),
-
-                    // DUE DATE & TIME
-                    Text(
-                      'Reminder',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 14, horizontal: 8),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            icon: const Icon(Icons.calendar_month, size: 18),
-                            label: Text(
-                              due == null ? 'Pick date' : _formatDate(due!),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            onPressed: () async {
-                              final now = DateTime.now();
-                              final initial = due ?? now;
-
-                              final selectedDate = await showDatePicker(
-                                context: ctx,
-                                initialDate: initial,
-                                firstDate:
-                                initial.isBefore(now) ? initial : now,
-                                lastDate: DateTime(2100),
-                              );
-
-                              if (selectedDate == null) return;
-
-                              final existingTime = due != null
-                                  ? TimeOfDay.fromDateTime(due!)
-                                  : TimeOfDay.now();
-
-                              setD(() {
-                                due = DateTime(
-                                  selectedDate.year,
-                                  selectedDate.month,
-                                  selectedDate.day,
-                                  existingTime.hour,
-                                  existingTime.minute,
-                                );
-                              });
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                  vertical: 14, horizontal: 8),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            icon: const Icon(Icons.access_time, size: 18),
-                            label: Text(
-                              due == null ? 'Pick time' : _formatTime(due!),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            onPressed: () async {
-                              final selectedTime = await showTimePicker(
-                                context: ctx,
-                                initialTime: due != null
-                                    ? TimeOfDay.fromDateTime(due!)
-                                    : TimeOfDay.now(),
-                              );
-
-                              if (selectedTime == null) return;
-
-                              final currentDate = due ?? DateTime.now();
-
-                              setD(() {
-                                due = DateTime(
-                                  currentDate.year,
-                                  currentDate.month,
-                                  currentDate.day,
-                                  selectedTime.hour,
-                                  selectedTime.minute,
-                                );
-                              });
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    // CLEAR REMINDER
-                    if (due != null)
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton.icon(
-                          onPressed: () {
-                            setD(() {
-                              due = null;
-                            });
-                          },
-                          icon: const Icon(Icons.clear, size: 18),
-                          label: const Text('Clear reminder'),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton.icon(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  icon: const Icon(Icons.check),
-                  label: const Text('Save'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    if (saved != true) {
-      _disposeLater(controllers);
-      return;
-    }
-
-    // =========================
-    // VALIDATE TITLE
-    // =========================
-
-    final taskTitle = titleController.text.trim();
-
-    if (taskTitle.isEmpty) {
-      _toast('Task title দিন');
-      _disposeLater(controllers);
-      return;
-    }
-
-    // =========================
-    // DATA
-    // =========================
-
-    final data = {
-      'title': taskTitle,
-      'description': descriptionController.text.trim(),
-      'priority': priority,
-      // UTC তে পাঠানো হচ্ছে, যাতে সময় নিয়ে বিভ্রান্তি না হয়
-      'dueDate': due?.toUtc().toIso8601String(),
-    };
-
-    try {
-      // =========================
-      // CREATE
-      // =========================
-
-      if (task == null) {
-        final oldIds = _tasks.map((t) => t.id.toString()).toSet();
-
-        await _service.createTask(data);
-        await _load();
-
-        _toast('Task তৈরি হয়েছে');
-
-        // নতুন তৈরি হওয়া task টা খুঁজে তার আসল ID দিয়ে reminder
-        if (due != null) {
-          final created = _tasks
-              .where((t) => !oldIds.contains(t.id.toString()))
-              .toList();
-
-          if (created.isNotEmpty) {
-            await NotificationService.scheduleTaskNotification(
-              id: _nid(created.first),
-              title: taskTitle,
-              scheduledDate: due!,
-            );
-          }
-        }
-      }
-
-      // =========================
-      // EDIT
-      // =========================
-
-      else {
-        await NotificationService.cancelTaskNotification(id: _nid(task));
-
-        await _service.updateTask(task.id, data);
-
-        // Completed task এর reminder দরকার নেই
-        if (due != null && !task.completed) {
-          await NotificationService.scheduleTaskNotification(
-            id: _nid(task),
-            title: taskTitle,
-            scheduledDate: due!,
-          );
-        }
-
-        _toast('Task update হয়েছে');
-        await _load();
-      }
-    } catch (e) {
-      _toast(e.toString());
-    } finally {
-      _disposeLater(controllers);
+  Color _priorityColor(TaskPriority priority) {
+    switch (priority) {
+      case TaskPriority.low:
+        return Colors.green;
+      case TaskPriority.medium:
+        return Colors.orange;
+      case TaskPriority.high:
+        return Colors.red;
     }
   }
 
-  // =========================
-  // COMPLETE / ACTIVE
-  // =========================
-
-  Future<void> _toggle(Task task) async {
-    try {
-      final completed = !task.completed;
-
-      await _service.updateTask(task.id, {'completed': completed});
-
-      if (completed) {
-        await NotificationService.cancelTaskNotification(id: _nid(task));
-        _toast('Task completed এবং reminder বন্ধ হয়েছে');
-      } else if (task.dueDate != null) {
-        final due = DateTime.tryParse(task.dueDate!)?.toLocal();
-
-        if (due != null && due.isAfter(DateTime.now())) {
-          await NotificationService.scheduleTaskNotification(
-            id: _nid(task),
-            title: task.title,
-            scheduledDate: due,
-          );
-        }
-      }
-
-      await _load();
-    } catch (e) {
-      _toast(e.toString());
+  String _priorityLabel(TaskPriority priority) {
+    switch (priority) {
+      case TaskPriority.low:
+        return 'Low';
+      case TaskPriority.medium:
+        return 'Medium';
+      case TaskPriority.high:
+        return 'High';
     }
   }
 
-  // =========================
-  // DELETE
-  // =========================
-
-  Future<void> _delete(Task task) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          icon: Icon(Icons.delete_outline, color: Colors.red.shade400, size: 36),
-          title: const Text('ডিলিট করবেন?'),
-          content: Text(task.title, textAlign: TextAlign.center),
-          actionsAlignment: MainAxisAlignment.center,
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('No'),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: Colors.red),
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Delete'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (ok != true) return;
-
-    try {
-      await NotificationService.cancelTaskNotification(id: _nid(task));
-      await _service.deleteTask(task.id);
-
-      _toast('Task deleted');
-      await _load();
-    } catch (e) {
-      _toast(e.toString());
-    }
-  }
-
-  // =========================
-  // LOGOUT
-  // =========================
-
-  Future<void> _logout() async {
-    await NotificationService.cancelAll();
-    await _auth.signOut();
-  }
-
-  // =========================
-  // FORMAT DATE / TIME
-  // =========================
+  // --------------------------------------------------
+  // DATE AND TIME
+  // --------------------------------------------------
 
   String _formatDate(DateTime date) {
     final day = date.day.toString().padLeft(2, '0');
     final month = date.month.toString().padLeft(2, '0');
-    final year = date.year.toString();
+    final year = date.year;
 
     return '$day/$month/$year';
   }
@@ -573,30 +168,441 @@ class _HomeScreenState extends State<HomeScreen> {
     return '$displayHour:$minute $period';
   }
 
-  String _dueText(String value) {
-    final date = DateTime.tryParse(value)?.toLocal();
+  String _dueText(DateTime date) {
+    final localDate = date.toLocal();
 
-    if (date == null) {
-      return value;
-    }
-
-    return '${_formatDate(date)} ${_formatTime(date)}';
+    return '${_formatDate(localDate)} '
+        '${_formatTime(localDate)}';
   }
 
-  // =========================
-  // UI PIECES
-  // =========================
+  // --------------------------------------------------
+  // ADD / EDIT TASK
+  // --------------------------------------------------
+
+  Future<void> _openForm([TaskModel? task]) async {
+    if (_saving) return;
+
+    final titleController = TextEditingController(text: task?.title ?? '');
+
+    final descriptionController = TextEditingController(
+      text: task?.description ?? '',
+    );
+
+    TaskPriority priority = task?.priority ?? TaskPriority.medium;
+
+    DateTime? due = task?.dueDate?.toLocal();
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
+              title: Text(
+                task == null ? 'নতুন টাস্ক' : 'টাস্ক এডিট',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: titleController,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: InputDecoration(
+                        labelText: 'Title',
+                        prefixIcon: const Icon(Icons.task_alt),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: descriptionController,
+                      maxLines: 3,
+                      textCapitalization: TextCapitalization.sentences,
+                      decoration: InputDecoration(
+                        labelText: 'Description',
+                        alignLabelWithHint: true,
+                        prefixIcon: const Icon(Icons.description),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    const Text(
+                      'Priority',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: SegmentedButton<TaskPriority>(
+                        showSelectedIcon: false,
+                        segments: const [
+                          ButtonSegment<TaskPriority>(
+                            value: TaskPriority.low,
+                            label: Text('Low'),
+                          ),
+                          ButtonSegment<TaskPriority>(
+                            value: TaskPriority.medium,
+                            label: Text('Medium'),
+                          ),
+                          ButtonSegment<TaskPriority>(
+                            value: TaskPriority.high,
+                            label: Text('High'),
+                          ),
+                        ],
+                        selected: {priority},
+                        onSelectionChanged: (selection) {
+                          setDialogState(() {
+                            priority = selection.first;
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    const Text(
+                      'Reminder',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.calendar_month, size: 18),
+                            label: Text(
+                              due == null ? 'Pick date' : _formatDate(due!),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            onPressed: () async {
+                              final now = DateTime.now();
+
+                              final initialDate = due ?? now;
+
+                              final selectedDate = await showDatePicker(
+                                context: dialogContext,
+                                initialDate: initialDate,
+                                firstDate: DateTime(2000),
+                                lastDate: DateTime(2100),
+                              );
+
+                              if (selectedDate == null) {
+                                return;
+                              }
+
+                              final existingTime = due != null
+                                  ? TimeOfDay.fromDateTime(due!)
+                                  : TimeOfDay.now();
+
+                              setDialogState(() {
+                                due = DateTime(
+                                  selectedDate.year,
+                                  selectedDate.month,
+                                  selectedDate.day,
+                                  existingTime.hour,
+                                  existingTime.minute,
+                                );
+                              });
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.access_time, size: 18),
+                            label: Text(
+                              due == null ? 'Pick time' : _formatTime(due!),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            onPressed: () async {
+                              final selectedTime = await showTimePicker(
+                                context: dialogContext,
+                                initialTime: due != null
+                                    ? TimeOfDay.fromDateTime(due!)
+                                    : TimeOfDay.now(),
+                              );
+
+                              if (selectedTime == null) {
+                                return;
+                              }
+
+                              final currentDate = due ?? DateTime.now();
+
+                              setDialogState(() {
+                                due = DateTime(
+                                  currentDate.year,
+                                  currentDate.month,
+                                  currentDate.day,
+                                  selectedTime.hour,
+                                  selectedTime.minute,
+                                );
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (due != null)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: () {
+                            setDialogState(() {
+                              due = null;
+                            });
+                          },
+                          icon: const Icon(Icons.clear, size: 18),
+                          label: const Text('Clear reminder'),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton.icon(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  icon: const Icon(Icons.save),
+                  label: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (saved != true) {
+      titleController.dispose();
+      descriptionController.dispose();
+      return;
+    }
+
+    final title = titleController.text.trim();
+    final description = descriptionController.text.trim();
+
+    if (title.isEmpty) {
+      _toast('Task title দিন');
+
+      titleController.dispose();
+      descriptionController.dispose();
+      return;
+    }
+
+    if (due != null && !due!.isAfter(DateTime.now())) {
+      _toast('ভবিষ্যতের তারিখ ও সময় নির্বাচন করুন');
+
+      titleController.dispose();
+      descriptionController.dispose();
+      return;
+    }
+
+    final data = <String, dynamic>{
+      'title': title,
+      'description': description,
+      'priority': priority.name,
+      'dueDate': due?.toUtc().toIso8601String(),
+    };
+
+    setState(() {
+      _saving = true;
+    });
+
+    try {
+      if (task == null) {
+        await _service.createTask(data);
+
+        // Reload server data after creation.
+        await _reloadAfterSave();
+
+        // Find the created task by matching its fields.
+        if (due != null) {
+          final matches = _tasks.where((item) {
+            return item.title == title &&
+                item.description == description &&
+                item.priority == priority &&
+                item.dueDate != null &&
+                item.dueDate!.toUtc().isAtSameMomentAs(due!.toUtc());
+          }).toList();
+
+          if (matches.isNotEmpty && !matches.first.isCompleted) {
+            await NotificationService.scheduleTaskNotification(
+              id: _nid(matches.first),
+              title: matches.first.title,
+              scheduledDate: due!,
+            );
+          } else {
+            debugPrint(
+              'Task saved. Reminder could not be matched to a server task ID.',
+            );
+          }
+        }
+
+        _toast('Task তৈরি হয়েছে');
+      } else {
+        await _service.updateTask(task.id, {
+          ...data,
+          'completed': task.isCompleted,
+        });
+
+        await NotificationService.cancelTaskNotification(id: _nid(task));
+
+        if (due != null && !task.isCompleted) {
+          await NotificationService.scheduleTaskNotification(
+            id: _nid(task),
+            title: title,
+            scheduledDate: due!,
+          );
+        }
+
+        await _reloadAfterSave();
+
+        _toast('Task update হয়েছে');
+      }
+    } catch (e) {
+      _toast('Save failed: $e');
+    } finally {
+      titleController.dispose();
+      descriptionController.dispose();
+
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _reloadAfterSave() async {
+    final tasks = await _service.getTasks();
+
+    if (!mounted) return;
+
+    setState(() {
+      _tasks = tasks;
+      _loading = false;
+    });
+  }
+
+  // --------------------------------------------------
+  // COMPLETE / ACTIVE
+  // --------------------------------------------------
+
+  Future<void> _toggle(TaskModel task) async {
+    if (_saving) return;
+
+    final completed = !task.isCompleted;
+
+    try {
+      await _service.updateTask(task.id, {'completed': completed});
+
+      if (completed) {
+        await NotificationService.cancelTaskNotification(id: _nid(task));
+
+        _toast('Task completed');
+      } else {
+        final due = task.dueDate;
+
+        if (due != null && due.isAfter(DateTime.now())) {
+          await NotificationService.scheduleTaskNotification(
+            id: _nid(task),
+            title: task.title,
+            scheduledDate: due,
+          );
+        }
+      }
+
+      await _load();
+    } catch (e) {
+      _toast('Update failed: $e');
+    }
+  }
+
+  // --------------------------------------------------
+  // DELETE
+  // --------------------------------------------------
+
+  Future<void> _delete(TaskModel task) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          icon: const Icon(Icons.delete_outline, color: Colors.red, size: 36),
+          title: const Text('ডিলিট করবেন?'),
+          content: Text(task.title, textAlign: TextAlign.center),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await _service.deleteTask(task.id);
+
+      await NotificationService.cancelTaskNotification(id: _nid(task));
+
+      if (!mounted) return;
+
+      setState(() {
+        _tasks.removeWhere((item) => item.id == task.id);
+      });
+
+      _toast('Task deleted');
+    } catch (e) {
+      _toast('Delete failed: $e');
+    }
+  }
+
+  // --------------------------------------------------
+  // LOGOUT
+  // --------------------------------------------------
+
+  Future<void> _logout() async {
+    try {
+      await _auth.signOut();
+    } catch (e) {
+      _toast('Logout failed: $e');
+    }
+  }
+
+  // --------------------------------------------------
+  // HEADER
+  // --------------------------------------------------
 
   Widget _buildHeader() {
     final user = _auth.currentUser;
-    final name = user?.displayName ?? user?.email ?? '';
+    final name = user?.displayName ?? user?.email ?? 'User';
+
     final total = _tasks.length;
     final done = _doneCount;
     final progress = total == 0 ? 0.0 : done / total;
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -651,6 +657,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  // --------------------------------------------------
+  // SEARCH
+  // --------------------------------------------------
+
   Widget _buildSearch() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -666,14 +676,15 @@ class _HomeScreenState extends State<HomeScreen> {
           suffixIcon: _query.isEmpty
               ? null
               : IconButton(
-            icon: const Icon(Icons.close),
-            onPressed: () {
-              _searchController.clear();
-              setState(() {
-                _query = '';
-              });
-            },
-          ),
+                  icon: const Icon(Icons.close),
+                  onPressed: () {
+                    _searchController.clear();
+
+                    setState(() {
+                      _query = '';
+                    });
+                  },
+                ),
           hintText: 'Search tasks',
           filled: true,
           fillColor: Colors.white,
@@ -687,6 +698,10 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  // --------------------------------------------------
+  // FILTER CHIP
+  // --------------------------------------------------
 
   Widget _filterChip(String key, String label, IconData icon, int count) {
     final selected = _filter == key;
@@ -703,7 +718,6 @@ class _HomeScreenState extends State<HomeScreen> {
       selectedColor: Colors.indigo.shade100,
       backgroundColor: Colors.white,
       side: BorderSide.none,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       onSelected: (_) {
         setState(() {
           _filter = key;
@@ -720,14 +734,17 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           _filterChip('all', 'All', Icons.list_alt, _tasks.length),
           const SizedBox(width: 8),
-          _filterChip(
-              'active', 'Active', Icons.pending_actions, _activeCount),
+          _filterChip('active', 'Active', Icons.pending_actions, _activeCount),
           const SizedBox(width: 8),
           _filterChip('done', 'Done', Icons.task_alt, _doneCount),
         ],
       ),
     );
   }
+
+  // --------------------------------------------------
+  // INFO CHIP
+  // --------------------------------------------------
 
   Widget _infoChip(IconData icon, String text, Color color) {
     return Container(
@@ -753,6 +770,10 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+
+  // --------------------------------------------------
+  // EMPTY STATE
+  // --------------------------------------------------
 
   Widget _buildEmpty() {
     final searching = _query.isNotEmpty || _filter != 'all';
@@ -786,12 +807,16 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildTaskCard(Task task) {
+  // --------------------------------------------------
+  // TASK CARD
+  // --------------------------------------------------
+
+  Widget _buildTaskCard(TaskModel task) {
     final color = _priorityColor(task.priority);
-    final due =
-    task.dueDate != null ? DateTime.tryParse(task.dueDate!)?.toLocal() : null;
+    final due = task.dueDate?.toLocal();
+
     final overdue =
-        due != null && !task.completed && due.isBefore(DateTime.now());
+        due != null && !task.isCompleted && due.isBefore(DateTime.now());
 
     return Dismissible(
       key: ValueKey('task_${task.id}'),
@@ -829,10 +854,9 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // PRIORITY STRIP
                 Container(
                   width: 5,
-                  color: task.completed ? Colors.grey.shade300 : color,
+                  color: task.isCompleted ? Colors.grey.shade300 : color,
                 ),
                 Expanded(
                   child: Padding(
@@ -841,9 +865,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Checkbox(
-                          value: task.completed,
+                          value: task.isCompleted,
                           shape: const CircleBorder(),
-                          onChanged: (_) => _toggle(task),
+                          onChanged: _saving ? null : (_) => _toggle(task),
                         ),
                         Expanded(
                           child: Padding(
@@ -856,10 +880,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.w600,
-                                    color: task.completed
+                                    color: task.isCompleted
                                         ? Colors.grey
                                         : Colors.black87,
-                                    decoration: task.completed
+                                    decoration: task.isCompleted
                                         ? TextDecoration.lineThrough
                                         : null,
                                   ),
@@ -884,15 +908,15 @@ class _HomeScreenState extends State<HomeScreen> {
                                     _infoChip(
                                       Icons.flag,
                                       _priorityLabel(task.priority),
-                                      task.completed ? Colors.grey : color,
+                                      task.isCompleted ? Colors.grey : color,
                                     ),
-                                    if (task.dueDate != null)
+                                    if (due != null)
                                       _infoChip(
                                         overdue
                                             ? Icons.warning_amber_rounded
                                             : Icons.schedule,
-                                        _dueText(task.dueDate!),
-                                        task.completed
+                                        _dueText(due),
+                                        task.isCompleted
                                             ? Colors.grey
                                             : overdue
                                             ? Colors.red
@@ -905,13 +929,16 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                         PopupMenuButton<String>(
-                          icon: Icon(Icons.more_vert, color: Colors.grey.shade600),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                          icon: Icon(
+                            Icons.more_vert,
+                            color: Colors.grey.shade600,
                           ),
                           onSelected: (value) {
-                            if (value == 'edit') _openForm(task);
-                            if (value == 'delete') _delete(task);
+                            if (value == 'edit') {
+                              _openForm(task);
+                            } else if (value == 'delete') {
+                              _delete(task);
+                            }
                           },
                           itemBuilder: (_) => const [
                             PopupMenuItem(
@@ -928,8 +955,10 @@ class _HomeScreenState extends State<HomeScreen> {
                               child: ListTile(
                                 dense: true,
                                 contentPadding: EdgeInsets.zero,
-                                leading:
-                                Icon(Icons.delete_outline, color: Colors.red),
+                                leading: Icon(
+                                  Icons.delete_outline,
+                                  color: Colors.red,
+                                ),
                                 title: Text('Delete'),
                               ),
                             ),
@@ -947,9 +976,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // =========================
+  // --------------------------------------------------
   // BUILD
-  // =========================
+  // --------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -974,7 +1003,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) => const NotificationLabScreen(),
+                  builder: (_) => const NotificationLabScreen(),
                 ),
               );
             },
@@ -987,7 +1016,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openForm(),
+        onPressed: _saving ? null : () => _openForm(),
         icon: const Icon(Icons.add),
         label: const Text('Add task'),
       ),
@@ -997,22 +1026,21 @@ class _HomeScreenState extends State<HomeScreen> {
           _buildSearch(),
           _buildFilters(),
           const SizedBox(height: 8),
-
-          // TASK LIST
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : RefreshIndicator(
-              onRefresh: _load,
-              child: list.isEmpty
-                  ? _buildEmpty()
-                  : ListView.builder(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.only(top: 4, bottom: 90),
-                itemCount: list.length,
-                itemBuilder: (_, index) => _buildTaskCard(list[index]),
-              ),
-            ),
+                    onRefresh: _load,
+                    child: list.isEmpty
+                        ? _buildEmpty()
+                        : ListView.builder(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.only(top: 4, bottom: 90),
+                            itemCount: list.length,
+                            itemBuilder: (_, index) =>
+                                _buildTaskCard(list[index]),
+                          ),
+                  ),
           ),
         ],
       ),
