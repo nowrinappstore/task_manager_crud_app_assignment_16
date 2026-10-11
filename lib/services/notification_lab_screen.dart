@@ -296,7 +296,7 @@ class _NotificationLabScreenState extends State<NotificationLabScreen> {
           Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.18),
+              color: Colors.white.withValues(alpha: 0.18),
               shape: BoxShape.circle,
             ),
             child: const Icon(
@@ -320,7 +320,7 @@ class _NotificationLabScreenState extends State<NotificationLabScreen> {
             'Test local notifications',
             style: TextStyle(
               fontSize: 15,
-              color: Colors.white.withOpacity(0.85),
+              color: Colors.white.withValues(alpha: 0.85),
             ),
           ),
         ],
@@ -377,7 +377,7 @@ class _NotificationLabScreenState extends State<NotificationLabScreen> {
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
         itemCount: _log.length,
-        separatorBuilder: (_, __) => Divider(height: 1, color: Colors.grey.shade200),
+        separatorBuilder: (_, _) => Divider(height: 1, color: Colors.grey.shade200),
         itemBuilder: (context, i) {
           final e = _log[i];
           return ListTile(
@@ -446,7 +446,7 @@ class _ActionCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: color.withOpacity(0.12),
+                color: color.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(14),
               ),
               child: Icon(icon, color: color, size: 28),
@@ -477,7 +477,7 @@ class _ActionCard extends StatelessWidget {
               onPressed: enabled ? onPressed : null,
               style: OutlinedButton.styleFrom(
                 foregroundColor: color,
-                side: BorderSide(color: color.withOpacity(0.6)),
+                side: BorderSide(color: color.withValues(alpha: 0.6)),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),

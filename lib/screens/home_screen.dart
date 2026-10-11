@@ -625,7 +625,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 : '$_activeCount টি টাস্ক বাকি আছে',
             style: TextStyle(
               fontSize: 14,
-              color: Colors.white.withOpacity(0.85),
+              color: Colors.white.withValues(alpha: 0.85),
             ),
           ),
           const SizedBox(height: 16),
@@ -634,7 +634,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: LinearProgressIndicator(
               value: progress,
               minHeight: 8,
-              backgroundColor: Colors.white.withOpacity(0.25),
+              backgroundColor: Colors.white.withValues(alpha: 0.25),
               valueColor: const AlwaysStoppedAnimation(Colors.white),
             ),
           ),
@@ -643,7 +643,7 @@ class _HomeScreenState extends State<HomeScreen> {
             '$done / $total completed',
             style: TextStyle(
               fontSize: 12,
-              color: Colors.white.withOpacity(0.85),
+              color: Colors.white.withValues(alpha: 0.85),
             ),
           ),
         ],
@@ -733,7 +733,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
@@ -817,7 +817,7 @@ class _HomeScreenState extends State<HomeScreen> {
           borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),

@@ -4,9 +4,11 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import 'package:task_manager_crud_app/app_navigator.dart';
 import 'package:task_manager_crud_app/services/auth_services.dart';
 import 'package:task_manager_crud_app/services/notification_lab_screen.dart';
 import 'package:task_manager_crud_app/services/notification_service.dart';
+import 'package:task_manager_crud_app/services/push_service.dart';
 
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
@@ -17,15 +19,9 @@ class AppStartup {
   static String? firebaseError;
 }
 
-class AppNavigator {
-  static final GlobalKey<NavigatorState> key =
-  GlobalKey<NavigatorState>();
-}
-
 // FCM Background Handler
 @pragma('vm:entry-point')
-Future<void> firebaseMessagingBackgroundHandler(
-    RemoteMessage message) async {
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
@@ -44,9 +40,8 @@ Future<void> main() async {
 
     AppStartup.firebaseReady = true;
 
-    FirebaseMessaging.onBackgroundMessage(
-      firebaseMessagingBackgroundHandler,
-    );
+    // Register the background handler once
+    FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   } catch (e) {
     AppStartup.firebaseError = e.toString();
     debugPrint('Firebase initialization failed: $e');
@@ -61,6 +56,12 @@ Future<void> main() async {
 
   // FCM Initialization
   if (AppStartup.firebaseReady) {
+    try {
+      await PushService.init();
+    } catch (e) {
+      debugPrint('Push service initialization failed: $e');
+    }
+
     try {
       await NotificationService.initializeFCM();
     } catch (e) {
@@ -78,6 +79,13 @@ Future<void> main() async {
   }
 
   runApp(const MyApp());
+
+  // App was opened from a terminated state by tapping a notification
+  if (AppStartup.firebaseReady) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      PushService.handleLaunchMessage();
+    });
+  }
 }
 
 class MyApp extends StatelessWidget {
@@ -93,24 +101,23 @@ class MyApp extends StatelessWidget {
         colorSchemeSeed: Colors.indigo,
         useMaterial3: true,
       ),
-      home: StreamBuilder<User?>(
+      // Check Firebase first so AuthService() is never touched if init failed
+      home: !AppStartup.firebaseReady
+          ? Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text(
+              'Firebase initialization failed:\n'
+                  '${AppStartup.firebaseError ?? "Unknown error"}',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      )
+          : StreamBuilder<User?>(
         stream: AuthService().authState,
         builder: (context, snapshot) {
-          if (!AppStartup.firebaseReady) {
-            return Scaffold(
-              body: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Text(
-                    'Firebase initialization failed:\n'
-                        '${AppStartup.firebaseError ?? "Unknown error"}',
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-            );
-          }
-
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Scaffold(
               body: Center(
@@ -155,9 +162,7 @@ class NotificationLabHomeScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const _SectionTitle(
-              title: 'Notification Lab',
-            ),
+            const _SectionTitle(title: 'Notification Lab'),
             const SizedBox(height: 16),
             _DemoButton(
               label: '1. Open Notification Lab',
@@ -172,19 +177,14 @@ class NotificationLabHomeScreen extends StatelessWidget {
 
 // Section Title
 class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({
-    required this.title,
-  });
+  const _SectionTitle({required this.title});
 
   final String title;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(
-        top: 24,
-        bottom: 8,
-      ),
+      padding: const EdgeInsets.only(top: 24, bottom: 8),
       child: Text(
         title,
         style: const TextStyle(
@@ -214,9 +214,7 @@ class _DemoButton extends StatelessWidget {
         onPressed: () {
           Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (context) => screen,
-            ),
+            MaterialPageRoute(builder: (context) => screen),
           );
         },
         icon: const Icon(Icons.notifications_active),
